@@ -20,6 +20,7 @@
 
 // The program starts with the usual include files, all of which you should
 // have seen before by now:
+#include "deal.II/base/exceptions.h"
 #include <deal.II/base/utilities.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/function.h>
@@ -44,6 +45,7 @@
 #include <deal.II/numerics/error_estimator.h>
 #include <deal.II/numerics/solution_transfer.h>
 #include <deal.II/numerics/matrix_tools.h>
+#include <deal.II/base/function.h>
 
 #include <fstream>
 #include <iostream>
@@ -79,6 +81,7 @@ namespace Step26
   public:
     HeatEquation();
     void run();
+    void set_heat_source(std::shared_ptr<Function<dim>> heat_source);
 
   private:
     void setup_system();
@@ -120,55 +123,44 @@ namespace Step26
   // introduction. For boundary values, we choose zero values, but this is
   // easily changed below.
   template <int dim>
-  class RightHandSide : public Function<dim>
+  class HeatSource : public Function<dim>
   {
   public:
-    RightHandSide()
-      : Function<dim>()
-      , period(0.2)
+    HeatSource(double laser_power_,
+                  double speed_, 
+                  double absorptivity_,
+                  double beam_radius_)
+      : Function<dim>(), laser_power(laser_power_), speed(speed_), absorptivity(absorptivity_), beam_radius(beam_radius_)
     {}
 
     virtual double value(const Point<dim> & p,
-                         const unsigned int component = 0) const override;
+                         const unsigned int component = 0) const override
 
+    {
+      (void)component;
+      AssertIndexRange(component, 1);
+      Assert(dim == 2, ExcNotImplemented());
+
+      //const double time = this->get_time();
+      
+      const double x = p[0];
+      const double y = p[1];
+      const double distance = std::sqrt(x * x + y * y);
+
+      const double laser_beam_radius = beam_radius * std::sqrt(laser_power);
+      const double gaussian = std::exp(-std::pow(distance/laser_beam_radius,2)); 
+      const double heat_input = laser_power * speed / (M_PI * absorptivity * beam_radius * beam_radius) * gaussian;
+    
+      return heat_input;
+    }
   private:
-    const double period;
+    const double laser_power;
+    const double speed;
+    const double absorptivity;
+    const double beam_radius;
   };
 
-
-
-  template <int dim>
-  double RightHandSide<dim>::value(const Point<dim> & p,
-                                   const unsigned int component) const
-  {
-    (void)component;
-    AssertIndexRange(component, 1);
-    Assert(dim == 2, ExcNotImplemented());
-
-    const double time = this->get_time();
-    const double point_within_period =
-      (time / period - std::floor(time / period));
-
-    if ((point_within_period >= 0.0) && (point_within_period <= 0.2))
-      {
-        if ((p[0] > 0.5) && (p[1] > -0.5))
-          return 1;
-        else
-          return 0;
-      }
-    else if ((point_within_period >= 0.5) && (point_within_period <= 0.7))
-      {
-        if ((p[0] > -0.5) && (p[1] > 0.5))
-          return 1;
-        else
-          return 0;
-      }
-    else
-      return 0;
-  }
-
-
-
+    
   template <int dim>
   class BoundaryValues : public Function<dim>
   {
@@ -472,7 +464,7 @@ namespace Step26
     // Recall that it contains the term $MU^{n-1}-(1-\theta)k_n AU^{n-1}$.
     // We put these terms into the variable system_rhs, with the
     // help of a temporary vector:
-    while (time <= 0.5)
+    while (time <= 0.1)
       {
         time += time_step;
         ++timestep_number;
@@ -662,8 +654,14 @@ int main()
   try
     {
       using namespace Step26;
+      const double laser_power = 200.0; // in watts
+      const double speed = 1.0; // in meters per second
+      const double absorptivity = 0.6;
+      const double beam_radius = 0.00005; // in meters
+      //const double time = 1.0;
 
       HeatEquation<2> heat_equation_solver;
+      heat_equation_solver.set_heat_source(std::make_shared<HeatSource<2>>(laser_power, speed, absorptivity, beam_radius));
       heat_equation_solver.run();
     }
   catch (std::exception &exc)
