@@ -138,35 +138,42 @@ namespace Step26
 
 
   template <int dim>
-  double RightHandSide<dim>::value(const Point<dim> & p,
+  double RightHandSide<dim>::value(const Point<dim> & point,
                                    const unsigned int component) const
   {
+    // HERE
+
     (void)component;
     AssertIndexRange(component, 1);
     Assert(dim == 2, ExcNotImplemented());
 
+    // FIXME: refactor into options:
+    const Point<dim> beam_initial_position(0.5, 0.5);
+    const Tensor<1, dim> beam_velocity_vector{{1.0, 0.0}};
+
+    /* Compute current position: */
     const double time = this->get_time();
-    const double point_within_period =
-      (time / period - std::floor(time / period));
+    const Point<dim> beam_position =
+        beam_initial_position + time * beam_velocity_vector;
 
-    if ((point_within_period >= 0.0) && (point_within_period <= 0.2))
-      {
-        if ((p[0] > 0.5) && (p[1] > -0.5))
-          return 1;
-        else
-          return 0;
-      }
-    else if ((point_within_period >= 0.5) && (point_within_period <= 0.7))
-      {
-        if ((p[0] > -0.5) && (p[1] > 0.5))
-          return 1;
-        else
-          return 0;
-      }
-    else
-      return 0;
+    const double distance = point.distance(beam_position);
+
+    // FIXME: refactor into options:
+    const double beam_radius = 0.1;
+    const double laser_power = 1.0;
+    const double absorptivity = 1.0;
+
+    /* Compute Gaussian: */
+
+    const double laser_beam_radius = beam_radius * std::sqrt(laser_power);
+    const double gaussian =
+        std::exp(-std::pow(distance / laser_beam_radius, 2));
+
+    const double heat_input = laser_power * gaussian /
+                              (M_PI * absorptivity * beam_radius * beam_radius);
+
+    return heat_input;
   }
-
 
 
   template <int dim>
