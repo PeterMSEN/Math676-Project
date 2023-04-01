@@ -123,10 +123,10 @@ namespace Step26
   // introduction. For boundary values, we choose zero values, but this is
   // easily changed below.
   template <int dim>
-  class RightHandSide : public Function<dim>
+  class HeatSource : public Function<dim>
   {
   public:
-    RightHandSide(double laser_power_,
+    HeatSource(double laser_power_,
                   double speed_, 
                   double absorptivity_,
                   double beam_radius_)
@@ -661,7 +661,7 @@ int main()
       //const double time = 1.0;
 
       HeatEquation<2> heat_equation_solver;
-      heat_equation_solver.set_heat_source(std::make_shared<RightHandSide<2>>(laser_power, speed, absorptivity, beam_radius));
+      heat_equation_solver.set_heat_source(std::make_shared<HeatSource<2>>(laser_power, speed, absorptivity, beam_radius));
       heat_equation_solver.run();
     }
   catch (std::exception &exc)
