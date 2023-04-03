@@ -125,7 +125,7 @@ namespace Step26
   public:
     RightHandSide()
       : Function<dim>()
-      , period(0.2)
+      , period(0.4)
     {}
 
     virtual double value(const Point<dim> & p,
@@ -148,8 +148,8 @@ namespace Step26
     Assert(dim == 2, ExcNotImplemented());
 
     // FIXME: refactor into options:
-    const Point<dim> beam_initial_position(0.5, 0.5);
-    const Tensor<1, dim> beam_velocity_vector{{1.0, 0.0}};
+    const Point<dim> beam_initial_position(0.2, 0.5);
+    const Tensor<1, dim> beam_velocity_vector{{2.0, 0.0}};
 
     /* Compute current position: */
     const double time = this->get_time();
@@ -159,9 +159,9 @@ namespace Step26
     const double distance = point.distance(beam_position);
 
     // FIXME: refactor into options:
-    const double beam_radius = 0.1;
-    const double laser_power = 1.0;
-    const double absorptivity = 1.0;
+    const double beam_radius = 0.005;
+    const double laser_power = 150.0;
+    const double absorptivity = 0.7;
 
     /* Compute Gaussian: */
 
@@ -169,8 +169,8 @@ namespace Step26
     const double gaussian =
         std::exp(-std::pow(distance / laser_beam_radius, 2));
 
-    const double heat_input = laser_power * gaussian /
-                              (M_PI * absorptivity * beam_radius * beam_radius);
+    const double heat_input = 2* absorptivity * laser_power * gaussian /
+                              (M_PI * beam_radius * beam_radius);
 
     return heat_input;
   }
@@ -209,7 +209,7 @@ namespace Step26
   HeatEquation<dim>::HeatEquation()
     : fe(1)
     , dof_handler(triangulation)
-    , time_step(1. / 500)
+    , time_step(2. / 500)
     , theta(0.5)
   {}
 
@@ -447,7 +447,7 @@ namespace Step26
     const unsigned int initial_global_refinement       = 2;
     const unsigned int n_adaptive_pre_refinement_steps = 4;
 
-    GridGenerator::hyper_cube(triangulation);
+    GridGenerator::hyper_rectangle(triangulation, Point<2>(0.0,0.0), Point<2>(2.5, 1.0));
     triangulation.refine_global(initial_global_refinement);
 
     setup_system();
@@ -479,7 +479,7 @@ namespace Step26
     // Recall that it contains the term $MU^{n-1}-(1-\theta)k_n AU^{n-1}$.
     // We put these terms into the variable system_rhs, with the
     // help of a temporary vector:
-    while (time <= 0.5)
+    while (time <= 1.0)
       {
         time += time_step;
         ++timestep_number;
