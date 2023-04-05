@@ -161,17 +161,18 @@ namespace Step26
     // FIXME: refactor into options:
     const double beam_radius = 0.005;
     const double laser_power = 150.0;
-    const double absorptivity = 0.7;
+    const double absorptivity = 0.6;
 
     /* Compute Gaussian: */
 
     const double laser_beam_radius = beam_radius * std::sqrt(laser_power);
     const double gaussian =
-        std::exp(-std::pow(distance / laser_beam_radius, 2));
+        std::exp((-2 * std::pow(distance, 2)) / std::pow(laser_beam_radius, 2));
+       /* std::exp(-std::pow(distance / laser_beam_radius, 2));*/
 
-    const double heat_input = 2* absorptivity * laser_power * gaussian /
-                              (M_PI * beam_radius * beam_radius);
-
+    const double heat_input =  absorptivity * laser_power * gaussian /
+                              (2* M_PI *  laser_beam_radius * laser_beam_radius);
+                              
     return heat_input;
   }
 
@@ -265,6 +266,14 @@ namespace Step26
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
     system_rhs.reinit(dof_handler.n_dofs());
+
+    const double rho = 14626;
+    const double thermal_conductivity = 23;
+    const double heat_capacity = 500;
+    
+    mass_matrix *= rho * heat_capacity;
+    laplace_matrix *= thermal_conductivity;
+    solution.reinit(dof_handler.n_dofs());
   }
 
 
