@@ -125,7 +125,7 @@ namespace Step26
   public:
     RightHandSide()
       : Function<dim>()
-      , period(0.4)
+      , period(0.2)
     {}
 
     virtual double value(const Point<dim> & p,
@@ -137,18 +137,16 @@ namespace Step26
 
 
 
+  
   template <int dim>
   double RightHandSide<dim>::value(const Point<dim> & point,
                                    const unsigned int component) const
   {
-    // HERE
-
     (void)component;
     AssertIndexRange(component, 1);
     Assert(dim == 2, ExcNotImplemented());
+    const Point<dim> beam_initial_position(200e-6, 500e-6);
 
-    // FIXME: refactor into options:
-    const Point<dim> beam_initial_position(0.2, 0.5);
     const Tensor<1, dim> beam_velocity_vector{{2.0, 0.0}};
 
     /* Compute current position: */
@@ -157,24 +155,71 @@ namespace Step26
         beam_initial_position + time * beam_velocity_vector;
 
     const double distance = point.distance(beam_position);
-
-    // FIXME: refactor into options:
-    const double beam_radius = 0.005;
+    const double beam_radius = 50e-6;
     const double laser_power = 150.0;
-    const double absorptivity = 0.6;
+    const double absorptivity = 0.4;
 
     /* Compute Gaussian: */
-
     const double laser_beam_radius = beam_radius * std::sqrt(laser_power);
     const double gaussian =
-        std::exp((-2 * std::pow(distance, 2)) / std::pow(laser_beam_radius, 2));
-       /* std::exp(-std::pow(distance / laser_beam_radius, 2));*/
+      
+       std::exp(-std::pow(distance*distance / 2* laser_beam_radius*laser_beam_radius, 1));
 
-    const double heat_input =  absorptivity * laser_power * gaussian /
-                              (2* M_PI *  laser_beam_radius * laser_beam_radius);
-                              
-    return heat_input;
-  }
+    const double heat_input =  absorptivity * laser_power * gaussian/
+                              (2 * M_PI *  laser_beam_radius * laser_beam_radius);
+        
+        
+    //FIX This
+    return heat_input*0;
+  } 
+  /*
+  template <int dim>
+  class RightHandSide : public Function<dim> {
+  public:
+    RightHandSide(const double laser_power, const double scanning_speed, const double beam_diameter)
+      : laser_power(laser_power)
+      , scanning_speed(scanning_speed)
+      , beam_diameter(beam_diameter)
+    {}
+
+    virtual double value(const Point<dim>& point,
+                        const unsigned int component = 0) const override {
+      Assert(component == 0, ExcInternalError());
+      Assert(dim == 2, ExcNotImplemented());
+
+      /* Compute current position: 
+      const double time = this->get_time();
+      const Point<dim> beam_initial_position(200e-6, 500e-6);
+      const Tensor<1, dim> beam_velocity_vector{{scanning_speed, 0.0}};
+      const Point<dim> beam_position =
+          beam_initial_position + time * beam_velocity_vector;
+
+      const double distance = (point - beam_position).norm();
+      const double laser_beam_radius = beam_diameter / 2.0;
+      const double absorptivity = 0.4;
+
+      /* Compute Gaussian: 
+      const double gaussian =
+          std::exp(-std::pow(distance / laser_beam_radius, 2.0)/2.0);
+
+      const double heat_input = absorptivity * laser_power * gaussian /
+                                (2.0 * M_PI * laser_beam_radius * laser_beam_radius);
+
+      return heat_input;
+    }
+
+private:
+  const double laser_power;
+  const double scanning_speed;
+  const double beam_diameter;
+};
+
+  private:
+    const double laser_power;
+    const double scanning_speed;
+    const double beam_diameter;
+  };
+  */
 
 
   template <int dim>
@@ -210,8 +255,9 @@ namespace Step26
   HeatEquation<dim>::HeatEquation()
     : fe(1)
     , dof_handler(triangulation)
-    , time_step(2. / 500)
+    , time_step(0.001 / 100)
     , theta(0.5)
+    
   {}
 
 
@@ -255,7 +301,7 @@ namespace Step26
     mass_matrix.reinit(sparsity_pattern);
     laplace_matrix.reinit(sparsity_pattern);
     system_matrix.reinit(sparsity_pattern);
-
+    
     MatrixCreator::create_mass_matrix(dof_handler,
                                       QGauss<dim>(fe.degree + 1),
                                       mass_matrix);
@@ -263,11 +309,12 @@ namespace Step26
                                          QGauss<dim>(fe.degree + 1),
                                          laplace_matrix);
 
+    
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
     system_rhs.reinit(dof_handler.n_dofs());
 
-    const double rho = 14626;
+    const double rho = 8000 + theta_matrix  ;
     const double thermal_conductivity = 23;
     const double heat_capacity = 500;
     
@@ -289,7 +336,6 @@ namespace Step26
 
     PreconditionSSOR<SparseMatrix<double>> preconditioner;
     preconditioner.initialize(system_matrix, 1.0);
-
     cg.solve(system_matrix, solution, system_rhs, preconditioner);
 
     constraints.distribute(solution);
@@ -312,7 +358,7 @@ namespace Step26
 
     data_out.attach_dof_handler(dof_handler);
     data_out.add_data_vector(solution, "U");
-
+    data_out.add_data_vector(system_rhs, "heat_input");
     data_out.build_patches();
 
     data_out.set_flags(DataOutBase::VtkFlags(time, timestep_number));
@@ -456,7 +502,7 @@ namespace Step26
     const unsigned int initial_global_refinement       = 2;
     const unsigned int n_adaptive_pre_refinement_steps = 4;
 
-    GridGenerator::hyper_rectangle(triangulation, Point<2>(0.0,0.0), Point<2>(2.5, 1.0));
+    GridGenerator::hyper_rectangle(triangulation, Point<2>(0.0,0.0), Point<2>(2500.0e-6, 1000.0e-6));
     triangulation.refine_global(initial_global_refinement);
 
     setup_system();
@@ -488,7 +534,7 @@ namespace Step26
     // Recall that it contains the term $MU^{n-1}-(1-\theta)k_n AU^{n-1}$.
     // We put these terms into the variable system_rhs, with the
     // help of a temporary vector:
-    while (time <= 1.0)
+    while (time <= 0.001) //0.001
       {
         time += time_step;
         ++timestep_number;
@@ -673,13 +719,16 @@ namespace Step26
 // Having made it this far,  there is, again, nothing
 // much to discuss for the main function of this
 // program: it looks like all such functions since step-6.
+const double laser_power = 100.0; // Laser power in watts
+const double laser_speed = 2;   // Laser speed in meters per second
+const double laser_diameter = 100e-6; // Laser diameter in meters
 int main()
 {
   try
     {
       using namespace Step26;
 
-      HeatEquation<2> heat_equation_solver;
+      HeatEquation<2> heat_equation_solver(laser_power, laser_speed, laser_diameter);
       heat_equation_solver.run();
     }
   catch (std::exception &exc)

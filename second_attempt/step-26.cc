@@ -110,18 +110,42 @@ namespace Step26
 
 
   template <int dim>
-  double RightHandSide<dim>::value(const Point<dim> & p,
-                                   const unsigned int component) const
-  {
-    (void)component;
-    (void)p;
+    double RightHandSide<dim>::value(const Point<dim> & point,
+                                    const unsigned int component) const
+    {
+      (void)component;
+      AssertIndexRange(component, 1);
+      Assert(dim == 2, ExcNotImplemented());
+      const Point<dim> beam_initial_position(0.2, 0.5);
 
-    AssertIndexRange(component, 1);
-    Assert(dim == 2, ExcNotImplemented());
+      const Tensor<1, dim> beam_velocity_vector{{2.0, 0.0}};
 
-    const double time = this->get_time();
+      /* Compute current position: */
+      const double time = this->get_time();
+      const Point<dim> beam_position =
+          beam_initial_position + time * beam_velocity_vector;
+      
+      std::cout << "beam: " << beam_position << std::endl;
+      std::cout << "time: " << time << std::endl; 
+ 
 
-    return 0. * time;
+      const double distance = point.distance(beam_position);
+      const double beam_radius = 100e-6;
+      const double laser_power = 150.0;
+      const double absorptivity = 0.4;
+
+      /* Compute Gaussian: */
+      const double laser_beam_radius = beam_radius * std::sqrt(laser_power);
+      const double gaussian =
+        
+        std::exp(-std::pow(distance*distance / 2* laser_beam_radius*laser_beam_radius, 1));
+
+      const double heat_input =  absorptivity * laser_power * gaussian/
+                                (2 * M_PI *  laser_beam_radius * laser_beam_radius);
+          
+          
+      //FIX This
+      return heat_input;
   }
 
 
@@ -151,7 +175,7 @@ namespace Step26
   HeatEquation<dim>::HeatEquation()
     : fe(1)
     , dof_handler(triangulation)
-    , time_step(1. / 500)
+    , time_step(2.0 / 500)
     , theta(0.5)
   {}
 
@@ -224,6 +248,8 @@ namespace Step26
 
     data_out.attach_dof_handler(dof_handler);
     data_out.add_data_vector(solution, "U");
+    data_out.add_data_vector(system_rhs, "heat_input");
+    
 
     data_out.build_patches();
 
@@ -284,7 +310,7 @@ namespace Step26
     const unsigned int initial_global_refinement       = 2;
     const unsigned int n_adaptive_pre_refinement_steps = 4;
 
-    GridGenerator::hyper_cube(triangulation); // FIXME
+        GridGenerator::hyper_rectangle(triangulation, Point<2>(0.0,0.0), Point<2>(2.5, 1.0)); // FIXME
     triangulation.refine_global(initial_global_refinement);
 
     setup_system();
