@@ -171,8 +171,8 @@ namespace Step26
 
     const double heat_input =  absorptivity * laser_power * gaussian/
                               (M_PI *  laser_beam_radius * laser_beam_radius);
-                              
-    return heat_input;
+
+    return 20000. * heat_input;
   }
 
 
