@@ -86,6 +86,8 @@ namespace Step26
     void output_results() const;
     void refine_mesh(const unsigned int min_grid_level,
                      const unsigned int max_grid_level);
+    Vector<double> adhesion_model();
+    void k();
 
     Triangulation<dim> triangulation;
     FE_Q<dim>          fe;
@@ -101,10 +103,14 @@ namespace Step26
     Vector<double> solution;
     Vector<double> old_solution;
     Vector<double> system_rhs;
+    Vector<double> Theta_model;
+    Vector<double> k_modified;
 
     double       time;
     double       time_step;
     unsigned int timestep_number;
+    
+
 
     const double theta;
   };
@@ -137,7 +143,6 @@ namespace Step26
 
 
 
-  
   template <int dim>
   double RightHandSide<dim>::value(const Point<dim> & point,
                                    const unsigned int component) const
@@ -145,8 +150,7 @@ namespace Step26
     (void)component;
     AssertIndexRange(component, 1);
     Assert(dim == 2, ExcNotImplemented());
-    const Point<dim> beam_initial_position(200e-6, 500e-6);
-
+    const Point<dim> beam_initial_position(0.2e-3, 0.5e-3);
     const Tensor<1, dim> beam_velocity_vector{{2.0, 0.0}};
 
     /* Compute current position: */
@@ -155,71 +159,21 @@ namespace Step26
         beam_initial_position + time * beam_velocity_vector;
 
     const double distance = point.distance(beam_position);
-    const double beam_radius = 50e-6;
-    const double laser_power = 150.0;
-    const double absorptivity = 0.4;
+    const double beam_radius = 50e-7;
+    const double laser_power = 250.0;
+    const double absorptivity = 0.5;
 
     /* Compute Gaussian: */
     const double laser_beam_radius = beam_radius * std::sqrt(laser_power);
     const double gaussian =
-      
-       std::exp(-std::pow(distance*distance / 2* laser_beam_radius*laser_beam_radius, 1));
+        /*std::exp((1, 2));*/
+       std::exp(-std::pow(distance / laser_beam_radius, 2)/2);
 
     const double heat_input =  absorptivity * laser_power * gaussian/
-                              (2 * M_PI *  laser_beam_radius * laser_beam_radius);
-        
-        
-    //FIX This
-    return heat_input*0;
-  } 
-  /*
-  template <int dim>
-  class RightHandSide : public Function<dim> {
-  public:
-    RightHandSide(const double laser_power, const double scanning_speed, const double beam_diameter)
-      : laser_power(laser_power)
-      , scanning_speed(scanning_speed)
-      , beam_diameter(beam_diameter)
-    {}
-
-    virtual double value(const Point<dim>& point,
-                        const unsigned int component = 0) const override {
-      Assert(component == 0, ExcInternalError());
-      Assert(dim == 2, ExcNotImplemented());
-
-      /* Compute current position: 
-      const double time = this->get_time();
-      const Point<dim> beam_initial_position(200e-6, 500e-6);
-      const Tensor<1, dim> beam_velocity_vector{{scanning_speed, 0.0}};
-      const Point<dim> beam_position =
-          beam_initial_position + time * beam_velocity_vector;
-
-      const double distance = (point - beam_position).norm();
-      const double laser_beam_radius = beam_diameter / 2.0;
-      const double absorptivity = 0.4;
-
-      /* Compute Gaussian: 
-      const double gaussian =
-          std::exp(-std::pow(distance / laser_beam_radius, 2.0)/2.0);
-
-      const double heat_input = absorptivity * laser_power * gaussian /
-                                (2.0 * M_PI * laser_beam_radius * laser_beam_radius);
-
-      return heat_input;
-    }
-
-private:
-  const double laser_power;
-  const double scanning_speed;
-  const double beam_diameter;
-};
-
-  private:
-    const double laser_power;
-    const double scanning_speed;
-    const double beam_diameter;
-  };
-  */
+                              (M_PI *  laser_beam_radius * laser_beam_radius);
+                              
+    return heat_input;
+  }
 
 
   template <int dim>
@@ -257,7 +211,6 @@ private:
     , dof_handler(triangulation)
     , time_step(0.001 / 100)
     , theta(0.5)
-    
   {}
 
 
@@ -301,7 +254,7 @@ private:
     mass_matrix.reinit(sparsity_pattern);
     laplace_matrix.reinit(sparsity_pattern);
     system_matrix.reinit(sparsity_pattern);
-    
+
     MatrixCreator::create_mass_matrix(dof_handler,
                                       QGauss<dim>(fe.degree + 1),
                                       mass_matrix);
@@ -309,18 +262,48 @@ private:
                                          QGauss<dim>(fe.degree + 1),
                                          laplace_matrix);
 
-    
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
     system_rhs.reinit(dof_handler.n_dofs());
 
-    const double rho = 8000 + theta_matrix  ;
-    const double thermal_conductivity = 23;
-    const double heat_capacity = 500;
+    const double rho = 19300;
+    const double thermal_conductivity = 170;
+    const double heat_capacity = 133;
     
     mass_matrix *= rho * heat_capacity;
     laplace_matrix *= thermal_conductivity;
-    solution.reinit(dof_handler.n_dofs());
+    Theta_model.reinit(dof_handler.n_dofs());
+  }
+
+  template <int dim>
+  Vector<double> HeatEquation<dim>::adhesion_model() {
+    // ...
+
+    const double Theta_i = 0.64;
+    const double Ts = 2000;
+    const double Tl = 5000;
+    Vector<double> Theta(old_solution.size());
+
+    // Loop over the solution vector and calculate theta at each node
+    for (unsigned int i=0; i<old_solution.size(); ++i) {
+        
+        if (old_solution[i] >= Tl) {
+            Theta(i) = 0;
+        } else if (old_solution[i] <= Ts) {
+            Theta(i) = Theta_i;
+        } else {
+            double Theta_T = (Theta_i / (Ts - Tl)) * (old_solution[i] - Tl);
+            Theta(i) = 1- Theta_T;
+        }
+      }
+    
+    return Theta;
+    }
+  template <int dim>
+  void HeatEquation<dim>::k() {
+    const double k = 20;
+    k_modified = k*adhesion_model();
+    
   }
 
 
@@ -336,6 +319,7 @@ private:
 
     PreconditionSSOR<SparseMatrix<double>> preconditioner;
     preconditioner.initialize(system_matrix, 1.0);
+
     cg.solve(system_matrix, solution, system_rhs, preconditioner);
 
     constraints.distribute(solution);
@@ -359,6 +343,7 @@ private:
     data_out.attach_dof_handler(dof_handler);
     data_out.add_data_vector(solution, "U");
     data_out.add_data_vector(system_rhs, "heat_input");
+    data_out.add_data_vector(Theta_model, "Theta");
     data_out.build_patches();
 
     data_out.set_flags(DataOutBase::VtkFlags(time, timestep_number));
@@ -502,7 +487,7 @@ private:
     const unsigned int initial_global_refinement       = 2;
     const unsigned int n_adaptive_pre_refinement_steps = 4;
 
-    GridGenerator::hyper_rectangle(triangulation, Point<2>(0.0,0.0), Point<2>(2500.0e-6, 1000.0e-6));
+    GridGenerator::hyper_rectangle(triangulation, Point<2>(0.0,0.0), Point<2>(2.5e-3, 1.0e-3));
     triangulation.refine_global(initial_global_refinement);
 
     setup_system();
@@ -547,6 +532,7 @@ private:
         laplace_matrix.vmult(tmp, old_solution);
         system_rhs.add(-(1 - theta) * time_step, tmp);
 
+        Theta_model = adhesion_model();
         // The second piece is to compute the contributions of the source
         // terms. This corresponds to the term $k_n
         // \left[ (1-\theta)F^{n-1} + \theta F^n \right]$. The following
@@ -719,16 +705,13 @@ private:
 // Having made it this far,  there is, again, nothing
 // much to discuss for the main function of this
 // program: it looks like all such functions since step-6.
-const double laser_power = 100.0; // Laser power in watts
-const double laser_speed = 2;   // Laser speed in meters per second
-const double laser_diameter = 100e-6; // Laser diameter in meters
 int main()
 {
   try
     {
       using namespace Step26;
 
-      HeatEquation<2> heat_equation_solver(laser_power, laser_speed, laser_diameter);
+      HeatEquation<2> heat_equation_solver;
       heat_equation_solver.run();
     }
   catch (std::exception &exc)
