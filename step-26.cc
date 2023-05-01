@@ -86,7 +86,8 @@ namespace Step26
     void output_results() const;
     void refine_mesh(const unsigned int min_grid_level,
                      const unsigned int max_grid_level);
-    Vector<double> adhesion_model();
+    void initialize_adhesion_model();
+    void update_adhesion_model();
     void k();
 
     Triangulation<dim> triangulation;
@@ -275,35 +276,43 @@ namespace Step26
     Theta_model.reinit(dof_handler.n_dofs());
   }
 
-  template <int dim>
-  Vector<double> HeatEquation<dim>::adhesion_model() {
-    // ...
 
+  template <int dim>
+  void HeatEquation<dim>::initialize_adhesion_model() {
+    const double Theta_i = 0.64;
+    for (unsigned int i = 0; i < old_solution.size(); ++i) {
+      Theta_model[i] = Theta_i;
+    }
+  }
+
+
+  template <int dim>
+  void HeatEquation<dim>::update_adhesion_model() {
     const double Theta_i = 0.64;
     const double Ts = 2000;
     const double Tl = 5000;
-    Vector<double> Theta(old_solution.size());
 
     // Loop over the solution vector and calculate theta at each node
-    for (unsigned int i=0; i<old_solution.size(); ++i) {
-        
-        if (old_solution[i] >= Tl) {
-            Theta(i) = 0;
-        } else if (old_solution[i] <= Ts) {
-            Theta(i) = Theta_i;
-        } else {
-            double Theta_T = (Theta_i / (Ts - Tl)) * (old_solution[i] - Tl);
-            Theta(i) = 1- Theta_T;
-        }
+    for (unsigned int i = 0; i < old_solution.size(); ++i) {
+      double new_theta = 0.;
+      if (old_solution[i] >= Tl) {
+        new_theta = 0.;
+      } else if (old_solution[i] <= Ts) {
+        new_theta = Theta_i;
+      } else {
+        double Theta_T = (Theta_i / (Ts - Tl)) * (old_solution[i] - Tl);
+        new_theta = 1. - Theta_T;
       }
-    
-    return Theta;
+
+      // Hysteresis model:
+      const double old_theta = Theta_model[i];
+      Theta_model[i] = std::min(old_theta, new_theta);
     }
+  }
+
   template <int dim>
   void HeatEquation<dim>::k() {
     const double k = 20;
-    k_modified = k*adhesion_model();
-    
   }
 
 
@@ -484,7 +493,7 @@ namespace Step26
   template <int dim>
   void HeatEquation<dim>::run()
   {
-    const unsigned int initial_global_refinement       = 2;
+    const unsigned int initial_global_refinement       = 4;
     const unsigned int n_adaptive_pre_refinement_steps = 4;
 
     GridGenerator::hyper_rectangle(triangulation, Point<2>(0.0,0.0), Point<2>(2.5e-3, 1.0e-3));
@@ -510,6 +519,7 @@ namespace Step26
                              Functions::ZeroFunction<dim>(),
                              old_solution);
     solution = old_solution;
+    initialize_adhesion_model();
 
     output_results();
 
@@ -532,7 +542,7 @@ namespace Step26
         laplace_matrix.vmult(tmp, old_solution);
         system_rhs.add(-(1 - theta) * time_step, tmp);
 
-        Theta_model = adhesion_model();
+        update_adhesion_model();
         // The second piece is to compute the contributions of the source
         // terms. This corresponds to the term $k_n
         // \left[ (1-\theta)F^{n-1} + \theta F^n \right]$. The following
