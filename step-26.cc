@@ -266,14 +266,14 @@ namespace Step26
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
     system_rhs.reinit(dof_handler.n_dofs());
+    Theta_model.reinit(dof_handler.n_dofs());
 
     const double rho = 19300;
     const double thermal_conductivity = 170;
     const double heat_capacity = 133;
-    
+
     mass_matrix *= rho * heat_capacity;
     laplace_matrix *= thermal_conductivity;
-    Theta_model.reinit(dof_handler.n_dofs());
   }
 
 
@@ -293,14 +293,14 @@ namespace Step26
     const double Tl = 5000;
 
     // Loop over the solution vector and calculate theta at each node
-    for (unsigned int i = 0; i < old_solution.size(); ++i) {
+    for (unsigned int i = 0; i < solution.size(); ++i) {
       double new_theta = 0.;
-      if (old_solution[i] >= Tl) {
+      if (solution[i] >= Tl) {
         new_theta = 0.;
-      } else if (old_solution[i] <= Ts) {
+      } else if (solution[i] <= Ts) {
         new_theta = Theta_i;
       } else {
-        double Theta_T = (Theta_i / (Ts - Tl)) * (old_solution[i] - Tl);
+        double Theta_T = (Theta_i / (Ts - Tl)) * (solution[i] - Tl);
         new_theta = 1. - Theta_T;
       }
 
@@ -308,6 +308,8 @@ namespace Step26
       const double old_theta = Theta_model[i];
       Theta_model[i] = std::min(old_theta, new_theta);
     }
+
+    constraints.distribute(Theta_model);
   }
 
   template <int dim>
@@ -438,11 +440,16 @@ namespace Step26
     // it to the old DoF handler. We then prepare the triangulation and the
     // data vector for refinement (in this order).
     SolutionTransfer<dim> solution_trans(dof_handler);
+    SolutionTransfer<dim> solution_trans_theta(dof_handler);
 
     Vector<double> previous_solution;
+    Vector<double> previous_theta;
     previous_solution = solution;
+    previous_theta = Theta_model;
+
     triangulation.prepare_coarsening_and_refinement();
     solution_trans.prepare_for_coarsening_and_refinement(previous_solution);
+    solution_trans_theta.prepare_for_coarsening_and_refinement(previous_theta);
 
     // Now everything is ready, so do the refinement and recreate the DoF
     // structure on the new grid, and finally initialize the matrix structures
@@ -457,7 +464,9 @@ namespace Step26
     setup_system();
 
     solution_trans.interpolate(previous_solution, solution);
+    solution_trans_theta.interpolate(previous_theta, Theta_model);
     constraints.distribute(solution);
+    constraints.distribute(Theta_model);
   }
 
 
@@ -542,7 +551,6 @@ namespace Step26
         laplace_matrix.vmult(tmp, old_solution);
         system_rhs.add(-(1 - theta) * time_step, tmp);
 
-        update_adhesion_model();
         // The second piece is to compute the contributions of the source
         // terms. This corresponds to the term $k_n
         // \left[ (1-\theta)F^{n-1} + \theta F^n \right]$. The following
@@ -605,7 +613,7 @@ namespace Step26
         // With this out of the way, all we have to do is solve the
         // system, generate graphical data, and...
         solve_time_step();
-
+        update_adhesion_model();
         output_results();
 
         // ...take care of mesh refinement. Here, what we want to do is
