@@ -89,10 +89,12 @@ namespace Step26
     void initialize_adhesion_model();
     void update_adhesion_model();
     void k();
+    void assmble_mass_matrix();
 
     Triangulation<dim> triangulation;
     FE_Q<dim>          fe;
     DoFHandler<dim>    dof_handler;
+    FEValues<dim>  fe_values;
 
     AffineConstraints<double> constraints;
 
@@ -100,7 +102,7 @@ namespace Step26
     SparseMatrix<double> mass_matrix;
     SparseMatrix<double> laplace_matrix;
     SparseMatrix<double> system_matrix;
-
+    
     Vector<double> solution;
     Vector<double> old_solution;
     Vector<double> system_rhs;
@@ -255,6 +257,9 @@ namespace Step26
     mass_matrix.reinit(sparsity_pattern);
     laplace_matrix.reinit(sparsity_pattern);
     system_matrix.reinit(sparsity_pattern);
+    
+    cell_matrix.reinit(sparsity_pattern);
+    
 
     MatrixCreator::create_mass_matrix(dof_handler,
                                       QGauss<dim>(fe.degree + 1),
@@ -262,6 +267,10 @@ namespace Step26
     MatrixCreator::create_laplace_matrix(dof_handler,
                                          QGauss<dim>(fe.degree + 1),
                                          laplace_matrix);
+
+    MatrixCreator::create_cell_matrix(dof_handler,
+                                      QGauss<dim>(fe.degree + 1),
+                                      cell_matrix);
 
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
@@ -274,6 +283,8 @@ namespace Step26
 
     mass_matrix *= rho * heat_capacity;
     laplace_matrix *= thermal_conductivity;
+
+
   }
 
 
@@ -301,7 +312,7 @@ namespace Step26
         new_theta = Theta_i;
       } else {
         double Theta_T = (Theta_i / (Ts - Tl)) * (solution[i] - Tl);
-        new_theta = 1. - Theta_T;
+        new_theta = Theta_T;
       }
 
       // Hysteresis model:
@@ -314,7 +325,39 @@ namespace Step26
 
   template <int dim>
   void HeatEquation<dim>::k() {
-    const double k = 20;
+    const double k = 170;
+
+  }
+
+  template <int dim>
+  void HeatEquation<dim>::assmble_mass_matrix() {
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+ 
+     FullMatrix<double> cell_mass(dofs_per_cell, dofs_per_cell);
+     
+    QGauss<2> quadrature_formula(fe.degree + 1);
+        FEValues<2> fe_values(fe,
+                      quadrature_formula,
+                      update_values | update_JxW_values);
+      
+      for (const auto &cell : dof_handler.active_cell_iterators())
+      
+    {fe_values.reinit(cell);
+ 
+      cell_mass = 0;
+         for (const unsigned int q_index : fe_values.quadrature_point_indices())
+        {
+          for (const unsigned int i : fe_values.dof_indices())
+              cell_mass(i,i) =
+                (fe_values.shape_grad(i, q_index) * // grad phi_i(x_q)
+                 fe_values.JxW(q_index));           // dx
+ 
+          for (const unsigned int i : fe_values.dof_indices())
+            cell_rhs(i) += (fe_values.shape_value(i, q_index) * // phi_i(x_q)
+                            1. *                                // f(x_q)
+                            fe_values.JxW(q_index));            // dx
+        }
+      cell->get_dof_indices(local_dof_indices);
   }
 
 
