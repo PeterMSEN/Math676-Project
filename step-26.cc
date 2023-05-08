@@ -88,13 +88,13 @@ namespace Step26
                      const unsigned int max_grid_level);
     void initialize_adhesion_model();
     void update_adhesion_model();
-    void k();
-    void assmble_mass_matrix();
+
+    FullMatrix<double> cell_mass();
+    Vector<double> cell_rhs(double heat_input);
 
     Triangulation<dim> triangulation;
     FE_Q<dim>          fe;
     DoFHandler<dim>    dof_handler;
-    FEValues<dim>  fe_values;
 
     AffineConstraints<double> constraints;
 
@@ -102,13 +102,16 @@ namespace Step26
     SparseMatrix<double> mass_matrix;
     SparseMatrix<double> laplace_matrix;
     SparseMatrix<double> system_matrix;
-    
+
     Vector<double> solution;
     Vector<double> old_solution;
     Vector<double> system_rhs;
     Vector<double> Theta_model;
     Vector<double> k_modified;
 
+
+    
+  
     double       time;
     double       time_step;
     unsigned int timestep_number;
@@ -257,9 +260,6 @@ namespace Step26
     mass_matrix.reinit(sparsity_pattern);
     laplace_matrix.reinit(sparsity_pattern);
     system_matrix.reinit(sparsity_pattern);
-    
-    cell_matrix.reinit(sparsity_pattern);
-    
 
     MatrixCreator::create_mass_matrix(dof_handler,
                                       QGauss<dim>(fe.degree + 1),
@@ -268,15 +268,11 @@ namespace Step26
                                          QGauss<dim>(fe.degree + 1),
                                          laplace_matrix);
 
-    MatrixCreator::create_cell_matrix(dof_handler,
-                                      QGauss<dim>(fe.degree + 1),
-                                      cell_matrix);
-
     solution.reinit(dof_handler.n_dofs());
     old_solution.reinit(dof_handler.n_dofs());
     system_rhs.reinit(dof_handler.n_dofs());
     Theta_model.reinit(dof_handler.n_dofs());
-
+   
     const double rho = 19300;
     const double thermal_conductivity = 170;
     const double heat_capacity = 133;
@@ -284,6 +280,7 @@ namespace Step26
     mass_matrix *= rho * heat_capacity;
     laplace_matrix *= thermal_conductivity;
 
+   
 
   }
 
@@ -299,9 +296,9 @@ namespace Step26
 
   template <int dim>
   void HeatEquation<dim>::update_adhesion_model() {
-    const double Theta_i = 0.64;
-    const double Ts = 2000;
-    const double Tl = 5000;
+    const double Theta_i = 0.640;
+    const double Ts = 1000;
+    const double Tl = 2000;
 
     // Loop over the solution vector and calculate theta at each node
     for (unsigned int i = 0; i < solution.size(); ++i) {
@@ -324,42 +321,82 @@ namespace Step26
   }
 
   template <int dim>
-  void HeatEquation<dim>::k() {
-    const double k = 170;
+  FullMatrix<double> HeatEquation<dim>::cell_mass()
+  {
 
-  }
-
-  template <int dim>
-  void HeatEquation<dim>::assmble_mass_matrix() {
-    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+     QGauss<2> quadrature_formula(fe.degree + 1);
+  FEValues<2> fe_values(fe,
+                        quadrature_formula,
+                        update_values | update_gradients | update_JxW_values);
  
-     FullMatrix<double> cell_mass(dofs_per_cell, dofs_per_cell);
-     
-    QGauss<2> quadrature_formula(fe.degree + 1);
-        FEValues<2> fe_values(fe,
-                      quadrature_formula,
-                      update_values | update_JxW_values);
-      
-      for (const auto &cell : dof_handler.active_cell_iterators())
-      
-    {fe_values.reinit(cell);
+  const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
  
-      cell_mass = 0;
-         for (const unsigned int q_index : fe_values.quadrature_point_indices())
+  FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+  Vector<double>     cell_rhs(dofs_per_cell);
+ 
+  std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+ 
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+ 
+      cell_matrix = 0;
+      cell_rhs    = 0;
+ 
+      for (const unsigned int q_index : fe_values.quadrature_point_indices())
         {
           for (const unsigned int i : fe_values.dof_indices())
-              cell_mass(i,i) =
+            //for (const unsigned int j : fe_values.dof_indices())
+              cell_matrix(i, i) +=
                 (fe_values.shape_grad(i, q_index) * // grad phi_i(x_q)
+                 fe_values.shape_grad(i, q_index) * // grad phi_j(x_q)
                  fe_values.JxW(q_index));           // dx
  
-          for (const unsigned int i : fe_values.dof_indices())
-            cell_rhs(i) += (fe_values.shape_value(i, q_index) * // phi_i(x_q)
-                            1. *                                // f(x_q)
-                            fe_values.JxW(q_index));            // dx
-        }
-      cell->get_dof_indices(local_dof_indices);
+       
+
+  }}
+ 
+  return cell_matrix;
+  
   }
 
+
+    template <int dim>
+  Vector<double> HeatEquation<dim>::cell_rhs(double heat_input)
+  {
+ const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+     QGauss<2> quadrature_formula(fe.degree + 1);
+  FEValues<2> fe_values(fe,
+                        quadrature_formula,
+                        update_values | update_gradients | update_JxW_values);
+ 
+  
+  Vector<double>     cell_rhs(dofs_per_cell);
+ 
+  std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+ 
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      fe_values.reinit(cell);
+ 
+      
+      cell_rhs    = 0;
+  for (const unsigned int q_index : fe_values.quadrature_point_indices())
+        {
+          for (const unsigned int i : fe_values.dof_indices())
+            cell_rhs(i) += (fe_values.shape_value(i, q_index) * // phi_i(x_q)
+                            heat_input *                                // f(x_q)
+                            fe_values.JxW(q_index));            // dx
+
+  }}
+  Vector<double> result(cell_rhs.size());
+
+  for (std::size_t i = 0; i < cell_rhs.size(); ++i) {
+    result[i] = cell_rhs[i] * Theta_model[i];
+  }
+  
+  return result;
+    }
 
   // @sect4{<code>HeatEquation::solve_time_step</code>}
   //
@@ -512,7 +549,7 @@ namespace Step26
     constraints.distribute(Theta_model);
   }
 
-
+//new
 
   // @sect4{<code>HeatEquation::run</code>}
   //
